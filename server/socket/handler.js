@@ -29,6 +29,11 @@ function setupSocket(io) {
           return;
         }
 
+        if (!db.isRoomMember(roomId, user.id)) {
+          socket.emit('error', { message: '无权加入该房间，请先申请加入' });
+          return;
+        }
+
         socket.join(`room_${roomId}`);
 
         const userRoomSet = userRooms.get(user.id);
@@ -87,6 +92,11 @@ function setupSocket(io) {
           return;
         }
 
+        if (!db.isRoomMember(roomId, user.id)) {
+          socket.emit('error', { message: '无权在该房间发送消息' });
+          return;
+        }
+
         const message = db.createMessage(
           roomId,
           user.id,
@@ -131,6 +141,11 @@ function setupSocket(io) {
           return;
         }
 
+        if (!db.isRoomMember(message.room_id, user.id)) {
+          socket.emit('error', { message: '无权操作该房间的消息' });
+          return;
+        }
+
         if (message.user_id !== user.id) {
           socket.emit('error', { message: '只能撤回自己的消息' });
           return;
@@ -161,7 +176,9 @@ function setupSocket(io) {
     });
 
     socket.on('mark_read', ({ roomId, messageId }) => {
-      db.updateLastReadMessage(roomId, user.id, messageId);
+      if (db.isRoomMember(roomId, user.id)) {
+        db.updateLastReadMessage(roomId, user.id, messageId);
+      }
     });
 
     socket.on('sync_offline_messages', ({ lastSyncTime }) => {
@@ -182,16 +199,20 @@ function setupSocket(io) {
     });
 
     socket.on('get_online_users', ({ roomId }) => {
-      broadcastOnlineUsers(io, roomId);
+      if (db.isRoomMember(roomId, user.id)) {
+        broadcastOnlineUsers(io, roomId);
+      }
     });
 
     socket.on('typing', ({ roomId, isTyping }) => {
-      socket.to(`room_${roomId}`).emit('user_typing', {
-        roomId,
-        userId: user.id,
-        nickname: user.nickname,
-        isTyping
-      });
+      if (db.isRoomMember(roomId, user.id)) {
+        socket.to(`room_${roomId}`).emit('user_typing', {
+          roomId,
+          userId: user.id,
+          nickname: user.nickname,
+          isTyping
+        });
+      }
     });
 
     socket.on('disconnect', () => {

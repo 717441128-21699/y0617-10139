@@ -100,6 +100,26 @@ const app = {
       this.handleJoinPrivateRoom();
     });
 
+    document.getElementById('join-room-id-btn').addEventListener('click', () => {
+      this.openJoinByIdModal();
+    });
+
+    document.getElementById('close-join-by-id-modal').addEventListener('click', () => {
+      document.getElementById('join-by-id-modal').classList.add('hidden');
+    });
+
+    document.getElementById('cancel-join-by-id').addEventListener('click', () => {
+      document.getElementById('join-by-id-modal').classList.add('hidden');
+    });
+
+    document.getElementById('join-by-id-roomid').addEventListener('input', (e) => {
+      this.handleRoomIdInput(e.target.value);
+    });
+
+    document.getElementById('confirm-join-by-id').addEventListener('click', () => {
+      this.handleJoinByIdRoom();
+    });
+
     document.getElementById('close-settings-modal').addEventListener('click', () => {
       document.getElementById('settings-modal').classList.add('hidden');
     });
@@ -365,7 +385,7 @@ const app = {
       listEl.innerHTML = `
         <div style="padding: 40px; text-align: center; color: #999;">
           <div style="font-size: 48px; margin-bottom: 12px;">💬</div>
-          <p>${type === 'rooms' ? '还没有加入任何房间' : '暂无公开房间'}</p>
+          <p>${type === 'rooms' ? '还没有加入任何房间' : '暂无可加入的房间'}</p>
         </div>
       `;
       return;
@@ -374,25 +394,51 @@ const app = {
     listEl.innerHTML = rooms.map(room => {
       const isActive = this.currentRoom && this.currentRoom.id === room.id;
       const unread = room.unread_count > 0 ? `<span class="unread-badge">${room.unread_count}</span>` : '';
-      const typeBadge = room.type === 'private' 
-        ? '<span class="room-type-badge private">私密</span>' 
-        : '<span class="room-type-badge public">公开</span>';
+      
+      let typeBadge = '';
+      if (type === 'rooms') {
+        typeBadge = room.type === 'private' 
+          ? '<span class="room-type-badge private">私聊/私密</span>' 
+          : '<span class="room-type-badge public">公开</span>';
+      } else {
+        if (room.has_password) {
+          typeBadge = '<span class="room-type-badge private">🔐 密码房</span>';
+        } else {
+          typeBadge = '<span class="room-type-badge public">公开</span>';
+        }
+      }
+
+      let joinBtn = '';
+      if (type === 'public' && !room.is_member) {
+        joinBtn = `<button class="btn btn-primary btn-small room-join-btn" data-room-id="${room.id}" data-room-type="${room.type}">加入</button>`;
+      }
 
       return `
         <div class="room-item ${isActive ? 'active' : ''}" data-room-id="${room.id}" data-room-type="${room.type}">
           <div class="room-avatar">${room.name.charAt(0)}</div>
           <div class="room-info">
             <div class="room-name">${this.escapeHtml(room.name)}</div>
-            <div class="room-last-message">${typeBadge}</div>
+            <div class="room-last-message">${typeBadge}${room.member_count !== undefined ? `<span style="color: #999; margin-left: 8px;">${room.member_count}人</span>` : ''}</div>
           </div>
           <div class="room-meta">
             ${unread}
+            ${joinBtn}
           </div>
         </div>
       `;
     }).join('');
 
+    listEl.querySelectorAll('.room-join-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const roomId = parseInt(btn.dataset.roomId);
+        const roomType = btn.dataset.roomType;
+        this.selectRoom(roomId, roomType);
+      });
+    });
+
     listEl.querySelectorAll('.room-item').forEach(item => {
+      if (item.querySelector('.room-join-btn')) return;
       item.addEventListener('click', () => {
         const roomId = parseInt(item.dataset.roomId);
         const roomType = item.dataset.roomType;
@@ -402,19 +448,22 @@ const app = {
   },
 
   async selectRoom(roomId, roomType) {
-    const isMember = this.rooms.some(r => r.id === roomId);
+    let isMember = this.rooms.some(r => r.id === roomId);
     
     if (!isMember) {
-      if (roomType === 'private') {
+      const publicRoom = this.publicRooms.find(r => r.id === roomId);
+      const needsPassword = publicRoom && publicRoom.has_password;
+      
+      if (needsPassword) {
         this.pendingJoinRoom = roomId;
-        const room = this.publicRooms.find(r => r.id === roomId);
-        document.getElementById('join-room-name').textContent = `房间: ${room.name}`;
+        document.getElementById('join-room-name').textContent = `房间: ${publicRoom.name}（密码房间）`;
         document.getElementById('join-room-modal').classList.remove('hidden');
         return;
       } else {
         try {
           await api.rooms.joinRoom(roomId);
           await this.loadRooms();
+          isMember = true;
         } catch (err) {
           this.showToast(err.message, 'error');
           return;
@@ -428,6 +477,10 @@ const app = {
     this.currentRoom = room;
     document.getElementById('chat-title').textContent = room.name;
     document.getElementById('members-panel').classList.add('hidden');
+    
+    if (room.unread_count && room.unread_count > 0) {
+      room.unread_count = 0;
+    }
     
     this.renderRoomList('rooms');
     await this.loadMessages(roomId);
@@ -453,6 +506,83 @@ const app = {
     }
   },
 
+  openJoinByIdModal() {
+    document.getElementById('join-by-id-roomid').value = '';
+    document.getElementById('join-by-id-password').value = '';
+    document.getElementById('join-by-id-password-group').style.display = 'none';
+    document.getElementById('join-by-id-room-info').style.display = 'none';
+    document.getElementById('join-by-id-room-info').innerHTML = '';
+    this.pendingJoinByIdRoom = null;
+    document.getElementById('join-by-id-modal').classList.remove('hidden');
+  },
+
+  async handleRoomIdInput(value) {
+    const roomId = parseInt(value.trim());
+    const passwordGroup = document.getElementById('join-by-id-password-group');
+    const infoEl = document.getElementById('join-by-id-room-info');
+    
+    if (!roomId || roomId <= 0) {
+      passwordGroup.style.display = 'none';
+      infoEl.style.display = 'none';
+      this.pendingJoinByIdRoom = null;
+      return;
+    }
+
+    try {
+      const data = await api.rooms.getRoomInfo(roomId);
+      const room = data.room;
+      this.pendingJoinByIdRoom = room;
+      
+      if (room.is_member) {
+        infoEl.style.display = 'block';
+        infoEl.innerHTML = `<div style="color: #27ae60;">✅ 你已经是「${this.escapeHtml(room.name)}」的成员，可以直接进入</div>`;
+        passwordGroup.style.display = 'none';
+      } else if (room.has_password) {
+        infoEl.style.display = 'block';
+        infoEl.innerHTML = `<div>房间：<strong>${this.escapeHtml(room.name)}</strong>（🔐 加密房间）</div>`;
+        passwordGroup.style.display = 'block';
+      } else {
+        infoEl.style.display = 'block';
+        infoEl.innerHTML = `<div>房间：<strong>${this.escapeHtml(room.name)}</strong>（公开房间）</div>`;
+        passwordGroup.style.display = 'none';
+      }
+    } catch (err) {
+      passwordGroup.style.display = 'none';
+      infoEl.style.display = 'block';
+      infoEl.innerHTML = `<div style="color: #e74c3c;">❌ ${this.escapeHtml(err.message)}</div>`;
+      this.pendingJoinByIdRoom = null;
+    }
+  },
+
+  async handleJoinByIdRoom() {
+    if (!this.pendingJoinByIdRoom) {
+      this.showToast('请输入有效的房间号', 'warning');
+      return;
+    }
+
+    const { id, has_password, is_member } = this.pendingJoinByIdRoom;
+    let password = null;
+
+    if (has_password && !is_member) {
+      password = document.getElementById('join-by-id-password').value;
+      if (!password) {
+        this.showToast('请输入访问密码', 'warning');
+        return;
+      }
+    }
+
+    try {
+      await api.rooms.joinRoom(id, password);
+      document.getElementById('join-by-id-modal').classList.add('hidden');
+      await this.loadRooms();
+      await this.selectRoom(id, this.pendingJoinByIdRoom.type);
+      this.pendingJoinByIdRoom = null;
+      this.showToast('加入房间成功', 'success');
+    } catch (err) {
+      this.showToast(err.message, 'error');
+    }
+  },
+
   async loadMessages(roomId) {
     const messagesEl = document.getElementById('chat-messages');
     
@@ -466,10 +596,16 @@ const app = {
         const lastMsgId = Math.max(...data.messages.map(m => m.id));
         socketClient.markRead(roomId, lastMsgId);
       }
+
+      const room = this.rooms.find(r => r.id === roomId);
+      if (room && room.unread_count && room.unread_count > 0) {
+        room.unread_count = 0;
+        this.renderRoomList('rooms');
+      }
       
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (err) {
-      this.showToast('加载消息失败', 'error');
+      this.showToast(err.message || '加载消息失败', 'error');
     }
   },
 
@@ -801,6 +937,8 @@ const app = {
     const { messages } = data;
     
     if (messages.length > 0) {
+      const unreadByRoom = {};
+      
       messages.forEach(msg => {
         const roomMessages = this.roomMessages.get(msg.room_id) || [];
         if (!roomMessages.find(m => m.id === msg.id)) {
@@ -808,9 +946,15 @@ const app = {
           this.roomMessages.set(msg.room_id, roomMessages);
         }
         
-        const room = this.rooms.find(r => r.id === msg.room_id);
+        if (msg.user_id !== this.currentUser.id) {
+          unreadByRoom[msg.room_id] = (unreadByRoom[msg.room_id] || 0) + 1;
+        }
+      });
+
+      Object.keys(unreadByRoom).forEach(roomId => {
+        const room = this.rooms.find(r => r.id === parseInt(roomId));
         if (room) {
-          room.unread_count = (room.unread_count || 0) + 1;
+          room.unread_count = (room.unread_count || 0) + unreadByRoom[roomId];
         }
       });
       

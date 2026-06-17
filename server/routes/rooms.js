@@ -17,7 +17,7 @@ router.get('/', authenticateToken, (req, res) => {
 
 router.get('/public', authenticateToken, (req, res) => {
   try {
-    const rooms = db.getPublicRooms();
+    const rooms = db.getPublicRooms(req.user.id);
     res.json({ rooms });
   } catch (err) {
     console.error('获取公开房间错误:', err);
@@ -47,6 +47,33 @@ router.post('/create', authenticateToken, (req, res) => {
   }
 });
 
+router.get('/info/:roomId', authenticateToken, (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const room = db.getRoomById(roomId);
+    
+    if (!room) {
+      return res.status(404).json({ error: '房间不存在' });
+    }
+
+    const isMember = db.isRoomMember(roomId, req.user.id);
+    const hasPassword = !!room.password;
+
+    res.json({
+      room: {
+        id: room.id,
+        name: room.name,
+        type: room.type,
+        has_password: hasPassword,
+        is_member: isMember
+      }
+    });
+  } catch (err) {
+    console.error('获取房间信息错误:', err);
+    res.status(500).json({ error: '获取房间信息失败' });
+  }
+});
+
 router.post('/join', authenticateToken, (req, res) => {
   try {
     const { roomId, password } = req.body;
@@ -54,6 +81,11 @@ router.post('/join', authenticateToken, (req, res) => {
     const room = db.getRoomById(roomId);
     if (!room) {
       return res.status(404).json({ error: '房间不存在' });
+    }
+
+    if (db.isRoomMember(roomId, req.user.id)) {
+      const members = db.getRoomMembers(roomId);
+      return res.json({ room, members, already_member: true });
     }
 
     if (room.type === 'private' && room.password) {
@@ -110,6 +142,10 @@ router.get('/:roomId/messages', authenticateToken, (req, res) => {
       return res.status(404).json({ error: '房间不存在' });
     }
 
+    if (!db.isRoomMember(roomId, req.user.id)) {
+      return res.status(403).json({ error: '无权访问该房间' });
+    }
+
     const messages = db.getMessages(roomId, before ? parseInt(before) : null, parseInt(limit));
     const lastReadId = db.getLastReadMessageId(roomId, req.user.id);
 
@@ -134,6 +170,10 @@ router.get('/:roomId/members', authenticateToken, (req, res) => {
     const room = db.getRoomById(roomId);
     if (!room) {
       return res.status(404).json({ error: '房间不存在' });
+    }
+
+    if (!db.isRoomMember(roomId, req.user.id)) {
+      return res.status(403).json({ error: '无权访问该房间' });
     }
 
     const members = db.getRoomMembers(roomId);

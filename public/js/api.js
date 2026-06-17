@@ -92,6 +92,10 @@ const api = {
       });
     },
 
+    getRoomInfo: (roomId) => {
+      return request(`/rooms/info/${roomId}`);
+    },
+
     createPrivateRoom: (targetUserId) => {
       return request('/rooms/private', {
         method: 'POST',

@@ -186,14 +186,30 @@ const dbOperations = {
     `, [userId, userId]);
   },
 
-  getPublicRooms: () => {
+  getPublicRooms: (currentUserId = null) => {
+    const params = [];
+    let joinSql = '';
+    let whereSql = "WHERE r.type = 'public'";
+    
+    if (currentUserId) {
+      joinSql = 'LEFT JOIN room_members rm_current ON r.id = rm_current.room_id AND rm_current.user_id = ?';
+      params.push(currentUserId);
+      whereSql = `WHERE (r.type = 'public' OR (r.type = 'private' AND r.password IS NOT NULL))`;
+    }
+    
     return all(`
       SELECT r.*, 
-             (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id = r.id) as member_count
+             (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id = r.id) as member_count,
+             CASE WHEN r.password IS NOT NULL THEN 1 ELSE 0 END as has_password,
+             ${currentUserId ? 'CASE WHEN rm_current.user_id IS NOT NULL THEN 1 ELSE 0 END as is_member' : '0 as is_member'}
       FROM rooms r
-      WHERE r.type = 'public'
+      ${joinSql}
+      ${whereSql}
       ORDER BY r.created_at DESC
-    `);
+    `, params).map(room => ({
+      ...room,
+      password: undefined
+    }));
   },
 
   getPrivateRoom: (user1Id, user2Id) => {
@@ -215,6 +231,11 @@ const dbOperations = {
       'INSERT OR IGNORE INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)',
       [roomId, userId, now]
     );
+  },
+
+  isRoomMember: (roomId, userId) => {
+    const result = get('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+    return !!result;
   },
 
   getRoomMembers: (roomId) => {
