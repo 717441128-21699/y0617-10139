@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实时聊天系统</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="auth-container" class="auth-container">
+      <div class="auth-card">
+        <h1 class="app-title">💬 实时聊天系统</h1>
+        
+        <div class="auth-tabs">
+          <button class="tab-btn active" data-tab="login">登录</button>
+          <button class="tab-btn" data-tab="register">注册</button>
+        </div>
+
+        <form id="login-form" class="auth-form active">
+          <div class="form-group">
+            <label>用户名</label>
+            <input type="text" id="login-username" placeholder="请输入用户名" required>
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" id="login-password" placeholder="请输入密码" required>
+          </div>
+          <button type="submit" class="btn btn-primary">登录</button>
+          <p class="error-message" id="login-error"></p>
+        </form>
+
+        <form id="register-form" class="auth-form">
+          <div class="form-group">
+            <label>用户名</label>
+            <input type="text" id="register-username" placeholder="3-20个字符" required minlength="3" maxlength="20">
+          </div>
+          <div class="form-group">
+            <label>昵称</label>
+            <input type="text" id="register-nickname" placeholder="请输入昵称" required>
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" id="register-password" placeholder="至少6位" required minlength="6">
+          </div>
+          <div class="form-group">
+            <label>确认密码</label>
+            <input type="password" id="register-confirm" placeholder="再次输入密码" required>
+          </div>
+          <button type="submit" class="btn btn-primary">注册</button>
+          <p class="error-message" id="register-error"></p>
+        </form>
+      </div>
+    </div>
+
+    <div id="chat-container" class="chat-container hidden">
+      <div class="sidebar">
+        <div class="user-profile">
+          <div class="avatar-large" id="current-avatar">👤</div>
+          <div class="user-info">
+            <span class="user-nickname" id="current-nickname">用户</span>
+            <span class="user-status online">在线</span>
+          </div>
+          <button class="btn-icon" id="settings-btn" title="设置">⚙️</button>
+          <button class="btn-icon" id="logout-btn" title="退出">🚪</button>
+        </div>
+
+        <div class="search-box">
+          <input type="text" id="room-search" placeholder="搜索用户或房间...">
+          <div class="search-results" id="search-results"></div>
+        </div>
+
+        <div class="room-tabs">
+          <button class="room-tab-btn active" data-type="rooms">我的房间</button>
+          <button class="room-tab-btn" data-type="public">公开房间</button>
+        </div>
+
+        <div class="room-actions">
+          <button class="btn btn-primary btn-small" id="create-room-btn">➕ 创建房间</button>
+        </div>
+
+        <div class="room-list" id="room-list"></div>
+      </div>
+
+      <div class="chat-main">
+        <div class="chat-header" id="chat-header">
+          <span class="chat-title">选择一个房间开始聊天</span>
+          <div class="chat-actions">
+            <button class="btn-icon" id="members-btn" title="成员列表">👥</button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <p>选择左侧房间开始聊天</p>
+          </div>
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator"></div>
+
+        <div class="chat-input-area">
+          <div class="input-toolbar">
+            <button class="toolbar-btn" id="upload-file-btn" title="上传文件">📎</button>
+            <button class="toolbar-btn" id="upload-image-btn" title="上传图片">🖼️</button>
+            <button class="toolbar-btn" id="mention-btn" title="提及用户">@</button>
+            <input type="file" id="file-input" accept="*/*" hidden>
+            <input type="file" id="image-input" accept="image/*" hidden>
+          </div>
+          <div class="input-area">
+            <textarea id="message-input" placeholder="输入消息... (Enter发送, Shift+Enter换行)" rows="1"></textarea>
+            <button class="btn btn-primary" id="send-btn">发送</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="members-panel hidden" id="members-panel">
+        <div class="panel-header">
+          <span>成员列表</span>
+          <button class="btn-icon" id="close-members">✕</button>
+        </div>
+        <div class="members-list" id="members-list"></div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="create-room-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>创建房间</h3>
+          <button class="btn-icon" id="close-create-modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>房间名称</label>
+            <input type="text" id="new-room-name" placeholder="请输入房间名称" required maxlength="50">
+          </div>
+          <div class="form-group">
+            <label>房间类型</label>
+            <select id="new-room-type">
+              <option value="public">公开房间</option>
+              <option value="private">私密房间（需密码）</option>
+            </select>
+          </div>
+          <div class="form-group" id="password-group" style="display: none;">
+            <label>访问密码</label>
+            <input type="password" id="new-room-password" placeholder="请设置密码">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancel-create">取消</button>
+          <button class="btn btn-primary" id="confirm-create">创建</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="join-room-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>加入私密房间</h3>
+          <button class="btn-icon" id="close-join-modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <p id="join-room-name"></p>
+          <div class="form-group">
+            <label>访问密码</label>
+            <input type="password" id="join-room-password" placeholder="请输入密码">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancel-join">取消</button>
+          <button class="btn btn-primary" id="confirm-join">加入</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="settings-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>个人设置</h3>
+          <button class="btn-icon" id="close-settings-modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>选择头像</label>
+            <div class="avatar-selector" id="avatar-selector">
+              <span class="avatar-option" data-avatar="👤">👤</span>
+              <span class="avatar-option" data-avatar="👨">👨</span>
+              <span class="avatar-option" data-avatar="👩">👩</span>
+              <span class="avatar-option" data-avatar="🧑">🧑</span>
+              <span class="avatar-option" data-avatar="👴">👴</span>
+              <span class="avatar-option" data-avatar="👵">👵</span>
+              <span class="avatar-option" data-avatar="🐱">🐱</span>
+              <span class="avatar-option" data-avatar="🐶">🐶</span>
+              <span class="avatar-option" data-avatar="🦊">🦊</span>
+              <span class="avatar-option" data-avatar="🐼">🐼</span>
+              <span class="avatar-option" data-avatar="🦁">🦁</span>
+              <span class="avatar-option" data-avatar="🐯">🐯</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>昵称</label>
+            <input type="text" id="settings-nickname" placeholder="请输入昵称">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancel-settings">取消</button>
+          <button class="btn btn-primary" id="confirm-settings">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="image-preview-modal">
+      <div class="modal-content image-preview">
+        <button class="btn-icon close-btn" id="close-image-preview">✕</button>
+        <img id="preview-image" src="" alt="预览">
+      </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/socket-client.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
