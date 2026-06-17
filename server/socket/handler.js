@@ -220,6 +220,25 @@ function setupSocket(io) {
       }
     });
 
+    socket.on('room_updated', ({ roomId, room }) => {
+      io.to(`room_${roomId}`).emit('room_updated', { roomId, room });
+    });
+
+    socket.on('member_removed', ({ roomId, userId }) => {
+      const removedSocket = onlineUsers.get(userId);
+      if (removedSocket) {
+        io.to(removedSocket.socketId).emit('removed_from_room', { roomId });
+        const removedRoomSet = userRooms.get(userId);
+        if (removedRoomSet) {
+          removedRoomSet.delete(roomId);
+        }
+      }
+
+      socket.leave(`room_${roomId}`);
+      io.to(`room_${roomId}`).emit('member_removed', { roomId, userId });
+      broadcastOnlineUsers(io, roomId);
+    });
+
     socket.on('disconnect', () => {
       console.log(`用户断开: ${user.nickname} (${user.id})`);
 

@@ -1089,3 +1089,132 @@ body {
     padding: 24px;
   }
 }
+
+.message-search-panel {
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 12px 16px;
+}
+
+.search-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-panel-header input {
+  flex: 1;
+  padding: 8px 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 20px;
+  font-size: 14px;
+}
+
+.search-panel-header input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.search-panel-results {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.search-result-msg {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.2s;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.search-result-msg:hover {
+  background: #f5f7fa;
+}
+
+.search-result-msg .search-sender {
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+}
+
+.search-result-msg .search-content {
+  font-size: 13px;
+  color: #666;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-result-msg .search-time {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.search-result-msg .search-highlight {
+  background: #fff3cd;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.manage-members-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.manage-member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.manage-member-item:hover {
+  background: #f5f7fa;
+}
+
+.manage-member-item .member-name {
+  flex: 1;
+  font-size: 14px;
+}
+
+.manage-member-item .owner-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #667eea;
+  color: white;
+}
+
+.manage-member-item .remove-member-btn {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.manage-member-item .remove-member-btn:hover {
+  background: #c0392b;
+}
+
+.read-status-indicator {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.read-status-indicator.read {
+  color: #27ae60;
+}

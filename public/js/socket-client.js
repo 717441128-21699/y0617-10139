@@ -191,6 +191,18 @@ class SocketClient {
     }
   }
 
+  emitRoomUpdated(roomId, room) {
+    if (this.socket && this.connected) {
+      this.socket.emit('room_updated', { roomId, room });
+    }
+  }
+
+  emitMemberRemoved(roomId, userId) {
+    if (this.socket && this.connected) {
+      this.socket.emit('member_removed', { roomId, userId });
+    }
+  }
+
   joinRoom(roomId, lastMessageId = 0) {
     if (this.socket && this.connected) {
       this.socket.emit('join_room', { roomId, lastMessageId });

@@ -85,10 +85,20 @@
 
       <div class="chat-main">
         <div class="chat-header" id="chat-header">
-          <span class="chat-title">选择一个房间开始聊天</span>
+          <span class="chat-title" id="chat-title">选择一个房间开始聊天</span>
           <div class="chat-actions">
+            <button class="btn-icon" id="search-messages-btn" title="搜索消息">🔍</button>
+            <button class="btn-icon" id="manage-room-btn" title="房间管理">⚙️</button>
             <button class="btn-icon" id="members-btn" title="成员列表">👥</button>
           </div>
+        </div>
+
+        <div class="message-search-panel hidden" id="message-search-panel">
+          <div class="search-panel-header">
+            <input type="text" id="message-search-input" placeholder="搜索消息或文件名...">
+            <button class="btn-icon" id="close-search-panel">✕</button>
+          </div>
+          <div class="search-panel-results" id="message-search-results"></div>
         </div>
 
         <div class="chat-messages" id="chat-messages">
@@ -121,6 +131,40 @@
           <button class="btn-icon" id="close-members">✕</button>
         </div>
         <div class="members-list" id="members-list"></div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="manage-room-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>房间管理</h3>
+          <button class="btn-icon" id="close-manage-modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>房间名称</label>
+            <input type="text" id="manage-room-name" placeholder="房间名称" maxlength="50">
+          </div>
+          <div class="form-group">
+            <label>房间类型</label>
+            <select id="manage-room-type">
+              <option value="public">公开房间</option>
+              <option value="private">私密房间（需密码）</option>
+            </select>
+          </div>
+          <div class="form-group" id="manage-password-group" style="display: none;">
+            <label>访问密码（留空则不设密码）</label>
+            <input type="password" id="manage-room-password" placeholder="输入新密码或留空移除密码">
+          </div>
+          <div class="form-group">
+            <h4 style="margin-bottom: 12px;">成员管理</h4>
+            <div id="manage-members-list" class="manage-members-list"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancel-manage">取消</button>
+          <button class="btn btn-primary" id="confirm-manage">保存</button>
+        </div>
       </div>
     </div>
 

@@ -380,6 +380,95 @@ const dbOperations = {
     }));
   },
 
+  updateRoom: (roomId, updates, userId) => {
+    const room = get('SELECT * FROM rooms WHERE id = ?', [roomId]);
+    if (!room) return null;
+    if (room.owner_id !== parseInt(userId)) return null;
+
+    const fields = [];
+    const params = [];
+
+    if (updates.name !== undefined) {
+      fields.push('name = ?');
+      params.push(updates.name);
+    }
+    if (updates.password !== undefined) {
+      if (updates.password === '') {
+        fields.push('password = ?');
+        params.push(null);
+      } else {
+        fields.push('password = ?');
+        params.push(bcrypt.hashSync(updates.password, 10));
+      }
+    }
+    if (updates.type !== undefined) {
+      fields.push('type = ?');
+      params.push(updates.type);
+    }
+
+    if (fields.length === 0) return sanitizeRoom(room);
+
+    params.push(roomId);
+    run(`UPDATE rooms SET ${fields.join(', ')} WHERE id = ?`, params);
+    return dbOperations.getRoomByIdSafe(roomId);
+  },
+
+  removeRoomMember: (roomId, userId) => {
+    run('DELETE FROM room_members WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+  },
+
+  searchMessages: (roomId, keyword, limit = 50) => {
+    const likeKeyword = `%${keyword}%`;
+    return all(`
+      SELECT m.*, u.username, u.nickname, u.avatar
+      FROM messages m
+      INNER JOIN users u ON m.user_id = u.id
+      WHERE m.room_id = ?
+        AND m.is_recalled = 0
+        AND (m.content LIKE ? OR m.file_name LIKE ?)
+      ORDER BY m.created_at DESC
+      LIMIT ?
+    `, [roomId, likeKeyword, likeKeyword, limit]).map(msg => ({
+      ...msg,
+      mentions: msg.mentions ? JSON.parse(msg.mentions) : null,
+      user: {
+        id: msg.user_id,
+        username: msg.username,
+        nickname: msg.nickname,
+        avatar: msg.avatar
+      }
+    }));
+  },
+
+  getPrivateChatReadStatus: (roomId, userId) => {
+    const room = get('SELECT * FROM rooms WHERE id = ? AND type = ?', [roomId, 'private']);
+    if (!room) return null;
+
+    const members = all(
+      'SELECT user_id, last_read_message_id FROM room_members WHERE room_id = ?',
+      [roomId]
+    );
+
+    const otherMember = members.find(m => m.user_id !== userId);
+    const myMember = members.find(m => m.user_id === userId);
+    if (!otherMember || !myMember) return null;
+
+    const lastMessage = get(
+      'SELECT id FROM messages WHERE room_id = ? AND is_recalled = 0 ORDER BY id DESC LIMIT 1',
+      [roomId]
+    );
+
+    const otherRead = !lastMessage || otherMember.last_read_message_id >= lastMessage.id;
+    const myRead = !lastMessage || myMember.last_read_message_id >= lastMessage.id;
+
+    return {
+      otherUserId: otherMember.user_id,
+      otherRead,
+      myRead,
+      lastMessageId: lastMessage ? lastMessage.id : 0
+    };
+  },
+
   getLastReadMessageId: (roomId, userId) => {
     const result = get(
       'SELECT last_read_message_id FROM room_members WHERE room_id = ? AND user_id = ?',

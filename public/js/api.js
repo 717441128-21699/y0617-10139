@@ -113,6 +113,27 @@ const api = {
 
     getMembers: (roomId) => {
       return request(`/rooms/${roomId}/members`);
+    },
+
+    updateRoom: (roomId, updates) => {
+      return request(`/rooms/${roomId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      });
+    },
+
+    removeMember: (roomId, userId) => {
+      return request(`/rooms/${roomId}/members/${userId}`, {
+        method: 'DELETE'
+      });
+    },
+
+    searchMessages: (roomId, keyword) => {
+      return request(`/rooms/${roomId}/search?keyword=${encodeURIComponent(keyword)}`);
+    },
+
+    getReadStatus: (roomId) => {
+      return request(`/rooms/${roomId}/read-status`);
     }
   },
 

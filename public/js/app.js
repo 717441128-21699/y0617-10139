@@ -13,6 +13,8 @@ const app = {
   mentionUsers: [],
   typingTimeout: null,
   isTyping: false,
+  searchDebounce: null,
+  privateReadStatus: null,
 
   init() {
     this.bindEvents();
@@ -158,6 +160,42 @@ const app = {
       document.getElementById('members-panel').classList.add('hidden');
     });
 
+    document.getElementById('manage-room-btn').addEventListener('click', () => {
+      this.openManageRoomModal();
+    });
+
+    document.getElementById('close-manage-modal').addEventListener('click', () => {
+      document.getElementById('manage-room-modal').classList.add('hidden');
+    });
+
+    document.getElementById('cancel-manage').addEventListener('click', () => {
+      document.getElementById('manage-room-modal').classList.add('hidden');
+    });
+
+    document.getElementById('confirm-manage').addEventListener('click', () => {
+      this.handleUpdateRoom();
+    });
+
+    document.getElementById('manage-room-type').addEventListener('change', (e) => {
+      document.getElementById('manage-password-group').style.display = 
+        e.target.value === 'private' ? 'block' : 'none';
+    });
+
+    document.getElementById('search-messages-btn').addEventListener('click', () => {
+      this.toggleMessageSearch();
+    });
+
+    document.getElementById('close-search-panel').addEventListener('click', () => {
+      this.closeMessageSearch();
+    });
+
+    document.getElementById('message-search-input').addEventListener('input', (e) => {
+      clearTimeout(this.searchDebounce);
+      this.searchDebounce = setTimeout(() => {
+        this.searchMessages(e.target.value.trim());
+      }, 300);
+    });
+
     document.getElementById('send-btn').addEventListener('click', () => {
       this.sendMessage();
     });
@@ -260,6 +298,18 @@ const app = {
       this.handleOfflineMessages(data);
     });
 
+    socketClient.on('room_updated', (data) => {
+      this.handleRoomUpdated(data);
+    });
+
+    socketClient.on('member_removed', (data) => {
+      this.handleMemberRemoved(data);
+    });
+
+    socketClient.on('removed_from_room', (data) => {
+      this.handleRemovedFromRoom(data);
+    });
+
     socketClient.on('error', (data) => {
       this.showToast(data.message || '发生错误', 'error');
     });
@@ -298,15 +348,20 @@ const app = {
   },
 
   resetChatState() {
-    document.getElementById('chat-title').textContent = '选择一个房间开始聊天';
+    const titleEl = document.getElementById('chat-title');
+    if (titleEl) titleEl.textContent = '选择一个房间开始聊天';
     const messagesEl = document.getElementById('chat-messages');
-    messagesEl.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">💬</div>
-        <p>选择左侧房间开始聊天</p>
-      </div>
-    `;
-    document.getElementById('message-input').value = '';
+    if (messagesEl) {
+      messagesEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">💬</div>
+          <p>选择左侧房间开始聊天</p>
+        </div>
+      `;
+    }
+    const inputEl = document.getElementById('message-input');
+    if (inputEl) inputEl.value = '';
+    this.closeMessageSearch();
   },
 
   async ensureRoomSelected() {
@@ -394,6 +449,7 @@ const app = {
   logout() {
     removeToken();
     localStorage.removeItem('last_sync_time');
+    localStorage.removeItem('current_room_id');
     socketClient.disconnect();
     this.currentUser = null;
     this.currentRoom = null;
@@ -521,7 +577,8 @@ const app = {
     this.currentRoom = room;
     localStorage.setItem('current_room_id', roomId.toString());
     
-    document.getElementById('chat-title').textContent = room.name;
+    const titleEl = document.getElementById('chat-title');
+    if (titleEl) titleEl.textContent = room.name;
     document.getElementById('members-panel').classList.add('hidden');
     
     const messagesEl = document.getElementById('chat-messages');
@@ -542,6 +599,7 @@ const app = {
     }
     
     this.renderRoomList('rooms');
+    this.closeMessageSearch();
     
     try {
       await this.loadMessages(roomId);
@@ -561,6 +619,25 @@ const app = {
     } catch (err) {
       console.error('Socket加入房间失败:', err);
       this.showToast('实时连接异常，部分功能可能不可用', 'warning');
+    }
+
+    this.loadPrivateReadStatus();
+  },
+
+  async loadPrivateReadStatus() {
+    if (!this.currentRoom || this.currentRoom.type !== 'private') {
+      this.privateReadStatus = null;
+      return;
+    }
+    try {
+      const data = await api.rooms.getReadStatus(this.currentRoom.id);
+      if (data.isPrivate) {
+        this.privateReadStatus = data;
+      } else {
+        this.privateReadStatus = null;
+      }
+    } catch (err) {
+      this.privateReadStatus = null;
     }
   },
 
@@ -807,6 +884,15 @@ const app = {
       </div>
     ` : '';
 
+    let readStatusHtml = '';
+    if (isSelf && !msg.is_recalled && this.privateReadStatus && this.currentRoom && this.currentRoom.type === 'private') {
+      const lastMsgId = this.privateReadStatus.lastMessageId;
+      if (msg.id === lastMsgId) {
+        const isRead = this.privateReadStatus.otherRead;
+        readStatusHtml = `<div class="read-status-indicator ${isRead ? 'read' : ''}">${isRead ? '✓✓ 已读' : '✓ 未读'}</div>`;
+      }
+    }
+
     return `
       <div class="message-item ${isSelf ? 'self' : ''}" data-message-id="${msg.id}">
         <div class="message-avatar">${msg.user ? msg.user.avatar : '👤'}</div>
@@ -818,6 +904,7 @@ const app = {
           <div class="message-bubble">
             ${contentHtml}
           </div>
+          ${readStatusHtml}
           ${actionsHtml}
         </div>
       </div>
@@ -918,6 +1005,7 @@ const app = {
       const messagesEl = document.getElementById('chat-messages');
       messagesEl.scrollTop = messagesEl.scrollHeight;
       socketClient.markRead(roomId, message.id);
+      this.loadPrivateReadStatus();
     } else {
       const room = this.rooms.find(r => r.id === roomId);
       if (room) {
@@ -969,8 +1057,8 @@ const app = {
   handleUserLeft(data) {
     const { roomId, userId } = data;
     
-    this.currentRoomMembers = this.currentRoomMembers.filter(m => m.id !== userId);
     const member = this.currentRoomMembers.find(m => m.id === userId);
+    this.currentRoomMembers = this.currentRoomMembers.filter(m => m.id !== userId);
     
     if (member && this.currentRoom && this.currentRoom.id === roomId) {
       this.showToast(`${member.nickname} 离开了房间`, 'info');
@@ -1062,6 +1150,60 @@ const app = {
     }
   },
 
+  handleRoomUpdated(data) {
+    const { roomId, room } = data;
+    
+    const localRoom = this.rooms.find(r => r.id === roomId);
+    if (localRoom) {
+      localRoom.name = room.name;
+      localRoom.type = room.type;
+      localRoom.has_password = room.has_password;
+    }
+
+    const publicRoom = this.publicRooms.find(r => r.id === roomId);
+    if (publicRoom) {
+      publicRoom.name = room.name;
+      publicRoom.type = room.type;
+      publicRoom.has_password = room.has_password;
+    }
+
+    if (this.currentRoom && this.currentRoom.id === roomId) {
+      this.currentRoom = { ...this.currentRoom, ...room };
+      const titleEl = document.getElementById('chat-title');
+      if (titleEl) titleEl.textContent = room.name;
+    }
+
+    this.renderRoomList('rooms');
+    this.showToast(`房间信息已更新`, 'info');
+  },
+
+  handleMemberRemoved(data) {
+    const { roomId, userId } = data;
+    
+    if (this.currentRoom && this.currentRoom.id === roomId) {
+      this.currentRoomMembers = this.currentRoomMembers.filter(m => m.id !== userId);
+      this.renderMembers();
+    }
+  },
+
+  handleRemovedFromRoom(data) {
+    const { roomId } = data;
+    
+    this.rooms = this.rooms.filter(r => r.id !== roomId);
+    this.roomMessages.delete(roomId);
+    
+    if (this.currentRoom && this.currentRoom.id === roomId) {
+      this.currentRoom = null;
+      this.resetChatState();
+      if (this.rooms.length > 0) {
+        this.selectRoom(this.rooms[0].id, this.rooms[0].type);
+      }
+    }
+    
+    this.renderRoomList('rooms');
+    this.showToast('你已被移出房间', 'warning');
+  },
+
   renderMembers() {
     const listEl = document.getElementById('members-list');
     
@@ -1103,6 +1245,197 @@ const app = {
     });
   },
 
+  async openManageRoomModal() {
+    if (!this.currentRoom) {
+      this.showToast('请先选择房间', 'warning');
+      return;
+    }
+
+    const room = this.currentRoom;
+    document.getElementById('manage-room-name').value = room.name;
+    document.getElementById('manage-room-type').value = room.type;
+    document.getElementById('manage-room-password').value = '';
+    document.getElementById('manage-password-group').style.display = room.type === 'private' ? 'block' : 'none';
+
+    try {
+      const data = await api.rooms.getMembers(room.id);
+      const members = data.members;
+      const membersList = document.getElementById('manage-members-list');
+      
+      membersList.innerHTML = members.map(member => {
+        const isOwner = room.owner_id ? member.id === room.owner_id : false;
+        return `
+          <div class="manage-member-item" data-user-id="${member.id}">
+            <div class="member-avatar" style="width: 32px; height: 32px; font-size: 16px;">${member.avatar}</div>
+            <div class="member-name">${this.escapeHtml(member.nickname)}</div>
+            ${isOwner ? '<span class="owner-badge">创建者</span>' : ''}
+            ${!isOwner && member.id !== this.currentUser.id ? `<button class="remove-member-btn" data-user-id="${member.id}">移除</button>` : ''}
+          </div>
+        `;
+      }).join('');
+
+      membersList.querySelectorAll('.remove-member-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const userId = parseInt(btn.dataset.userId);
+          const memberEl = btn.closest('.manage-member-item');
+          const memberName = memberEl.querySelector('.member-name').textContent;
+          
+          if (confirm(`确定要移除 ${memberName} 吗？`)) {
+            try {
+              await api.rooms.removeMember(room.id, userId);
+              socketClient.emitMemberRemoved(room.id, userId);
+              memberEl.remove();
+              this.showToast('成员已移除', 'success');
+            } catch (err) {
+              this.showToast(err.message, 'error');
+            }
+          }
+        });
+      });
+    } catch (err) {
+      this.showToast('加载成员列表失败', 'error');
+    }
+
+    document.getElementById('manage-room-modal').classList.remove('hidden');
+  },
+
+  async handleUpdateRoom() {
+    if (!this.currentRoom) return;
+
+    const name = document.getElementById('manage-room-name').value.trim();
+    const type = document.getElementById('manage-room-type').value;
+    const password = document.getElementById('manage-room-password').value;
+
+    if (!name || name.length < 1 || name.length > 50) {
+      this.showToast('房间名称应为1-50个字符', 'warning');
+      return;
+    }
+
+    const updates = { name, type };
+    if (type === 'private') {
+      if (password) {
+        updates.password = password;
+      } else if (!this.currentRoom.has_password) {
+        this.showToast('私密房间需要设置密码', 'warning');
+        return;
+      }
+    } else {
+      updates.password = '';
+    }
+
+    try {
+      const data = await api.rooms.updateRoom(this.currentRoom.id, updates);
+      document.getElementById('manage-room-modal').classList.add('hidden');
+      
+      socketClient.emitRoomUpdated(this.currentRoom.id, data.room);
+      this.handleRoomUpdated({ roomId: this.currentRoom.id, room: data.room });
+      this.showToast('房间信息已更新', 'success');
+    } catch (err) {
+      this.showToast(err.message, 'error');
+    }
+  },
+
+  toggleMessageSearch() {
+    const panel = document.getElementById('message-search-panel');
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      document.getElementById('message-search-input').focus();
+    } else {
+      this.closeMessageSearch();
+    }
+  },
+
+  closeMessageSearch() {
+    const panel = document.getElementById('message-search-panel');
+    panel.classList.add('hidden');
+    document.getElementById('message-search-input').value = '';
+    document.getElementById('message-search-results').innerHTML = '';
+  },
+
+  async searchMessages(keyword) {
+    if (!keyword || !this.currentRoom) return;
+
+    const resultsEl = document.getElementById('message-search-results');
+    
+    try {
+      const data = await api.rooms.searchMessages(this.currentRoom.id, keyword);
+      
+      if (data.messages.length === 0) {
+        resultsEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">未找到相关消息</div>';
+        return;
+      }
+
+      resultsEl.innerHTML = data.messages.map(msg => {
+        const time = new Date(msg.created_at).toLocaleString('zh-CN', { 
+          month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+        });
+
+        let content = '';
+        if (msg.type === 'image') {
+          content = `[图片] ${msg.file_name || ''}`;
+        } else if (msg.type === 'file') {
+          content = `[文件] ${msg.file_name || ''}`;
+        } else {
+          content = msg.content || '';
+        }
+
+        const escapedContent = this.escapeHtml(content);
+        const escapedKeyword = this.escapeHtml(keyword);
+        const highlightedContent = escapedContent.replace(
+          new RegExp(escapedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+          match => `<span class="search-highlight">${match}</span>`
+        );
+
+        return `
+          <div class="search-result-msg" data-message-id="${msg.id}">
+            <div class="search-sender">${this.escapeHtml(msg.user ? msg.user.nickname : '用户')} <span class="search-time">${time}</span></div>
+            <div class="search-content">${highlightedContent}</div>
+          </div>
+        `;
+      }).join('');
+
+      resultsEl.querySelectorAll('.search-result-msg').forEach(item => {
+        item.addEventListener('click', () => {
+          const msgId = parseInt(item.dataset.messageId);
+          this.jumpToMessage(msgId);
+        });
+      });
+    } catch (err) {
+      resultsEl.innerHTML = `<div style="padding: 20px; text-align: center; color: #e74c3c;">搜索失败: ${this.escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  jumpToMessage(messageId) {
+    const messagesEl = document.getElementById('chat-messages');
+    const targetEl = messagesEl.querySelector(`[data-message-id="${messageId}"]`);
+    
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      targetEl.style.transition = 'background 0.3s';
+      targetEl.style.background = '#fff3cd';
+      setTimeout(() => {
+        targetEl.style.background = '';
+      }, 2000);
+    } else {
+      const messages = this.roomMessages.get(this.currentRoom.id) || [];
+      if (messages.find(m => m.id === messageId)) {
+        this.renderMessages(this.currentRoom.id);
+        setTimeout(() => {
+          const el = document.querySelector(`[data-message-id="${messageId}"]`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.style.transition = 'background 0.3s';
+            el.style.background = '#fff3cd';
+            setTimeout(() => {
+              el.style.background = '';
+            }, 2000);
+          }
+        }, 100);
+      }
+    }
+    this.closeMessageSearch();
+  },
+
   openCreateRoomModal() {
     document.getElementById('new-room-name').value = '';
     document.getElementById('new-room-type').value = 'public';
@@ -1128,8 +1461,7 @@ const app = {
 
     try {
       const data = await api.rooms.createRoom(name, type, password);
-      this.rooms.unshift(data.room);
-      this.renderRoomList('rooms');
+      await this.loadRooms();
       document.getElementById('create-room-modal').classList.add('hidden');
       await this.selectRoom(data.room.id, type);
       this.showToast('创建成功', 'success');

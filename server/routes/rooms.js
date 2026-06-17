@@ -134,6 +134,115 @@ router.post('/private', authenticateToken, (req, res) => {
   }
 });
 
+router.put('/:roomId', authenticateToken, (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { name, password, type } = req.body;
+
+    if (!db.isRoomMember(roomId, req.user.id)) {
+      return res.status(403).json({ error: '无权操作该房间' });
+    }
+
+    const updates = {};
+    if (name !== undefined) {
+      if (!name || name.length < 1 || name.length > 50) {
+        return res.status(400).json({ error: '房间名称长度应为1-50个字符' });
+      }
+      updates.name = name;
+    }
+    if (password !== undefined) {
+      updates.password = password;
+    }
+    if (type !== undefined) {
+      if (!['public', 'private'].includes(type)) {
+        return res.status(400).json({ error: '无效的房间类型' });
+      }
+      updates.type = type;
+    }
+
+    const updatedRoom = db.updateRoom(roomId, updates, req.user.id);
+    if (!updatedRoom) {
+      return res.status(403).json({ error: '只有房间创建者可以管理房间' });
+    }
+
+    res.json({ room: updatedRoom });
+  } catch (err) {
+    console.error('更新房间错误:', err);
+    res.status(500).json({ error: '更新房间失败' });
+  }
+});
+
+router.delete('/:roomId/members/:userId', authenticateToken, (req, res) => {
+  try {
+    const { roomId, userId } = req.params;
+
+    if (!db.isRoomMember(roomId, req.user.id)) {
+      return res.status(403).json({ error: '无权操作该房间' });
+    }
+
+    const room = db.getRoomById(roomId);
+    if (!room) {
+      return res.status(404).json({ error: '房间不存在' });
+    }
+
+    if (room.owner_id !== req.user.id) {
+      return res.status(403).json({ error: '只有房间创建者可以移除成员' });
+    }
+
+    if (parseInt(userId) === room.owner_id) {
+      return res.status(400).json({ error: '不能移除房间创建者' });
+    }
+
+    db.removeRoomMember(roomId, parseInt(userId));
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('移除成员错误:', err);
+    res.status(500).json({ error: '移除成员失败' });
+  }
+});
+
+router.get('/:roomId/search', authenticateToken, (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { keyword } = req.query;
+
+    if (!keyword) {
+      return res.status(400).json({ error: '请输入搜索关键词' });
+    }
+
+    if (!db.isRoomMember(roomId, req.user.id)) {
+      return res.status(403).json({ error: '无权访问该房间' });
+    }
+
+    const messages = db.searchMessages(roomId, keyword);
+    res.json({ messages });
+  } catch (err) {
+    console.error('搜索消息错误:', err);
+    res.status(500).json({ error: '搜索消息失败' });
+  }
+});
+
+router.get('/:roomId/read-status', authenticateToken, (req, res) => {
+  try {
+    const { roomId } = req.params;
+
+    if (!db.isRoomMember(roomId, req.user.id)) {
+      return res.status(403).json({ error: '无权访问该房间' });
+    }
+
+    const status = db.getPrivateChatReadStatus(roomId, req.user.id);
+    if (!status) {
+      return res.json({ isPrivate: false });
+    }
+
+    res.json({ isPrivate: true, ...status });
+  } catch (err) {
+    console.error('获取已读状态错误:', err);
+    res.status(500).json({ error: '获取已读状态失败' });
+  }
+});
+
 router.get('/:roomId/messages', authenticateToken, (req, res) => {
   try {
     const { roomId } = req.params;
