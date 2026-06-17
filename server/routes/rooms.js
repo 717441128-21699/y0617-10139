@@ -125,8 +125,9 @@ router.post('/private', authenticateToken, (req, res) => {
       db.addRoomMember(room.id, targetUserId);
     }
 
+    const safeRoom = db.getRoomByIdSafe(room.id);
     const members = db.getRoomMembers(room.id);
-    res.json({ room, members });
+    res.json({ room: safeRoom, members });
   } catch (err) {
     console.error('创建私聊错误:', err);
     res.status(500).json({ error: '创建私聊失败' });

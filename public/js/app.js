@@ -272,30 +272,16 @@ const app = {
         const data = await api.auth.getProfile();
         this.currentUser = data.user;
         this.showChat();
+        this.resetChatState();
         await this.loadRooms();
-        this.setupSocket();
-        await this.restoreCurrentRoom();
+        await this.setupSocket();
+        await this.ensureRoomSelected();
       } catch (err) {
         removeToken();
         this.showAuth();
       }
     } else {
       this.showAuth();
-    }
-  },
-
-  async restoreCurrentRoom() {
-    const savedRoomId = localStorage.getItem('current_room_id');
-    if (!savedRoomId) return;
-    
-    const roomId = parseInt(savedRoomId);
-    if (!roomId) return;
-    
-    const room = this.rooms.find(r => r.id === roomId);
-    if (room) {
-      await this.selectRoom(roomId, room.type);
-    } else {
-      localStorage.removeItem('current_room_id');
     }
   },
 
@@ -309,6 +295,40 @@ const app = {
     document.getElementById('chat-container').classList.remove('hidden');
     document.getElementById('current-nickname').textContent = this.currentUser.nickname;
     document.getElementById('current-avatar').textContent = this.currentUser.avatar;
+  },
+
+  resetChatState() {
+    document.getElementById('chat-title').textContent = '选择一个房间开始聊天';
+    const messagesEl = document.getElementById('chat-messages');
+    messagesEl.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">💬</div>
+        <p>选择左侧房间开始聊天</p>
+      </div>
+    `;
+    document.getElementById('message-input').value = '';
+  },
+
+  async ensureRoomSelected() {
+    if (this.currentRoom) {
+      return;
+    }
+
+    const savedId = localStorage.getItem('current_room_id');
+    if (savedId) {
+      const savedRoom = this.rooms.find(r => r.id === parseInt(savedId));
+      if (savedRoom) {
+        await this.selectRoom(savedRoom.id, savedRoom.type);
+        return;
+      }
+    }
+
+    if (this.rooms.length > 0) {
+      const first = this.rooms[0];
+      await this.selectRoom(first.id, first.type);
+    } else {
+      this.resetChatState();
+    }
   },
 
   async setupSocket() {
@@ -334,8 +354,10 @@ const app = {
       setToken(data.token);
       this.currentUser = data.user;
       this.showChat();
+      this.resetChatState();
       await this.loadRooms();
       await this.setupSocket();
+      await this.ensureRoomSelected();
       this.showToast('登录成功', 'success');
     } catch (err) {
       errorEl.textContent = err.message;
@@ -359,8 +381,10 @@ const app = {
       setToken(data.token);
       this.currentUser = data.user;
       this.showChat();
+      this.resetChatState();
       await this.loadRooms();
       await this.setupSocket();
+      await this.ensureRoomSelected();
       this.showToast('注册成功', 'success');
     } catch (err) {
       errorEl.textContent = err.message;
@@ -490,6 +514,7 @@ const app = {
     const room = this.rooms.find(r => r.id === roomId);
     if (!room) {
       this.showToast('房间不存在', 'error');
+      this.resetChatState();
       return;
     }
 
@@ -498,6 +523,19 @@ const app = {
     
     document.getElementById('chat-title').textContent = room.name;
     document.getElementById('members-panel').classList.add('hidden');
+    
+    const messagesEl = document.getElementById('chat-messages');
+    const cached = this.roomMessages.get(roomId);
+    if (cached && cached.length > 0) {
+      this.renderMessages(roomId);
+    } else {
+      messagesEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⏳</div>
+          <p>加载消息中...</p>
+        </div>
+      `;
+    }
     
     if (room.unread_count && room.unread_count > 0) {
       room.unread_count = 0;
@@ -509,6 +547,12 @@ const app = {
       await this.loadMessages(roomId);
     } catch (err) {
       this.showToast(err.message || '加载消息失败', 'error');
+      messagesEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⚠️</div>
+          <p>加载消息失败: ${this.escapeHtml(err.message || '未知错误')}</p>
+        </div>
+      `;
     }
     
     try {
@@ -516,6 +560,7 @@ const app = {
       socketClient.getOnlineUsers(roomId);
     } catch (err) {
       console.error('Socket加入房间失败:', err);
+      this.showToast('实时连接异常，部分功能可能不可用', 'warning');
     }
   },
 
@@ -780,12 +825,20 @@ const app = {
   },
 
   sendMessage() {
-    if (!this.currentRoom) return;
+    if (!this.currentRoom) {
+      this.showToast('请先选择一个房间', 'warning');
+      return;
+    }
 
     const input = document.getElementById('message-input');
     const content = input.value.trim();
     
     if (!content) return;
+
+    if (!socketClient.isConnected()) {
+      this.showToast('连接已断开，正在重连中...', 'warning');
+      return;
+    }
 
     const mentions = this.extractMentions(content);
     
@@ -1001,9 +1054,11 @@ const app = {
         }
       });
       
+      this.rooms = freshRooms;
       this.renderRoomList('rooms');
     } catch (err) {
       console.error('刷新未读计数失败:', err);
+      this.showToast(err.message || '刷新未读失败', 'warning');
     }
   },
 

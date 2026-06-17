@@ -162,6 +162,10 @@ class SocketClient {
     this.joinedRooms.clear();
   }
 
+  isConnected() {
+    return this.connected && this.socket && this.socket.connected;
+  }
+
   on(event, handler) {
     if (!this.eventHandlers[event]) {
       this.eventHandlers[event] = [];
