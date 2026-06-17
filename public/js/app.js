@@ -274,12 +274,28 @@ const app = {
         this.showChat();
         await this.loadRooms();
         this.setupSocket();
+        await this.restoreCurrentRoom();
       } catch (err) {
         removeToken();
         this.showAuth();
       }
     } else {
       this.showAuth();
+    }
+  },
+
+  async restoreCurrentRoom() {
+    const savedRoomId = localStorage.getItem('current_room_id');
+    if (!savedRoomId) return;
+    
+    const roomId = parseInt(savedRoomId);
+    if (!roomId) return;
+    
+    const room = this.rooms.find(r => r.id === roomId);
+    if (room) {
+      await this.selectRoom(roomId, room.type);
+    } else {
+      localStorage.removeItem('current_room_id');
     }
   },
 
@@ -465,16 +481,21 @@ const app = {
           await this.loadRooms();
           isMember = true;
         } catch (err) {
-          this.showToast(err.message, 'error');
+          this.showToast(err.message || '加入房间失败', 'error');
           return;
         }
       }
     }
 
     const room = this.rooms.find(r => r.id === roomId);
-    if (!room) return;
+    if (!room) {
+      this.showToast('房间不存在', 'error');
+      return;
+    }
 
     this.currentRoom = room;
+    localStorage.setItem('current_room_id', roomId.toString());
+    
     document.getElementById('chat-title').textContent = room.name;
     document.getElementById('members-panel').classList.add('hidden');
     
@@ -483,9 +504,19 @@ const app = {
     }
     
     this.renderRoomList('rooms');
-    await this.loadMessages(roomId);
-    socketClient.joinRoom(roomId);
-    socketClient.getOnlineUsers(roomId);
+    
+    try {
+      await this.loadMessages(roomId);
+    } catch (err) {
+      this.showToast(err.message || '加载消息失败', 'error');
+    }
+    
+    try {
+      socketClient.joinRoom(roomId);
+      socketClient.getOnlineUsers(roomId);
+    } catch (err) {
+      console.error('Socket加入房间失败:', err);
+    }
   },
 
   async handleJoinPrivateRoom() {
@@ -631,6 +662,7 @@ const app = {
       messagesEl.scrollTop = messagesEl.scrollHeight - prevScrollHeight;
     } catch (err) {
       console.error('加载更多失败:', err);
+      this.showToast(err.message || '加载更多消息失败', 'error');
     }
   },
 
@@ -937,29 +969,41 @@ const app = {
     const { messages } = data;
     
     if (messages.length > 0) {
-      const unreadByRoom = {};
-      
       messages.forEach(msg => {
         const roomMessages = this.roomMessages.get(msg.room_id) || [];
         if (!roomMessages.find(m => m.id === msg.id)) {
           roomMessages.push(msg);
           this.roomMessages.set(msg.room_id, roomMessages);
         }
-        
-        if (msg.user_id !== this.currentUser.id) {
-          unreadByRoom[msg.room_id] = (unreadByRoom[msg.room_id] || 0) + 1;
-        }
       });
 
-      Object.keys(unreadByRoom).forEach(roomId => {
-        const room = this.rooms.find(r => r.id === parseInt(roomId));
-        if (room) {
-          room.unread_count = (room.unread_count || 0) + unreadByRoom[roomId];
+      if (this.currentRoom) {
+        this.renderMessages(this.currentRoom.id);
+      }
+    }
+
+    this.refreshUnreadCounts();
+    
+    if (messages.length > 0) {
+      this.showToast(`收到 ${messages.length} 条离线消息`, 'info');
+    }
+  },
+
+  async refreshUnreadCounts() {
+    try {
+      const data = await api.rooms.getMyRooms();
+      const freshRooms = data.rooms;
+      
+      freshRooms.forEach(freshRoom => {
+        const localRoom = this.rooms.find(r => r.id === freshRoom.id);
+        if (localRoom) {
+          localRoom.unread_count = freshRoom.unread_count || 0;
         }
       });
       
       this.renderRoomList('rooms');
-      this.showToast(`收到 ${messages.length} 条离线消息`, 'info');
+    } catch (err) {
+      console.error('刷新未读计数失败:', err);
     }
   },
 

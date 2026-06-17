@@ -50,21 +50,20 @@ router.post('/create', authenticateToken, (req, res) => {
 router.get('/info/:roomId', authenticateToken, (req, res) => {
   try {
     const { roomId } = req.params;
-    const room = db.getRoomById(roomId);
+    const room = db.getRoomByIdSafe(roomId);
     
     if (!room) {
       return res.status(404).json({ error: '房间不存在' });
     }
 
     const isMember = db.isRoomMember(roomId, req.user.id);
-    const hasPassword = !!room.password;
 
     res.json({
       room: {
         id: room.id,
         name: room.name,
         type: room.type,
-        has_password: hasPassword,
+        has_password: room.has_password,
         is_member: isMember
       }
     });
@@ -84,20 +83,22 @@ router.post('/join', authenticateToken, (req, res) => {
     }
 
     if (db.isRoomMember(roomId, req.user.id)) {
+      const safeRoom = db.getRoomByIdSafe(roomId);
       const members = db.getRoomMembers(roomId);
-      return res.json({ room, members, already_member: true });
+      return res.json({ room: safeRoom, members, already_member: true });
     }
 
     if (room.type === 'private' && room.password) {
-      if (!password || !bcrypt.compareSync(password, room.password)) {
+      if (!password || !db.verifyRoomPassword(roomId, password)) {
         return res.status(403).json({ error: '房间密码错误' });
       }
     }
 
     db.addRoomMember(roomId, req.user.id);
+    const safeRoom = db.getRoomByIdSafe(roomId);
     const members = db.getRoomMembers(roomId);
 
-    res.json({ room, members });
+    res.json({ room: safeRoom, members });
   } catch (err) {
     console.error('加入房间错误:', err);
     res.status(500).json({ error: '加入房间失败' });

@@ -1,6 +1,7 @@
 const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 
 const DB_FILE = path.join(__dirname, '..', '..', 'chat.db');
 
@@ -83,6 +84,20 @@ function saveDatabase() {
   const data = db.export();
   const buffer = Buffer.from(data);
   fs.writeFileSync(DB_FILE, buffer);
+}
+
+function sanitizeRoom(room) {
+  if (!room) return null;
+  return {
+    ...room,
+    password: undefined,
+    has_password: !!room.password
+  };
+}
+
+function sanitizeRooms(rooms) {
+  if (!rooms) return [];
+  return rooms.map(sanitizeRoom);
 }
 
 function run(query, params = []) {
@@ -168,15 +183,26 @@ const dbOperations = {
     if (room) {
       dbOperations.addRoomMember(room.id, ownerId);
     }
-    return room;
+    return sanitizeRoom(room);
   },
 
   getRoomById: (id) => {
     return get('SELECT * FROM rooms WHERE id = ?', [id]);
   },
 
+  getRoomByIdSafe: (id) => {
+    const room = get('SELECT * FROM rooms WHERE id = ?', [id]);
+    return sanitizeRoom(room);
+  },
+
+  verifyRoomPassword: (roomId, password) => {
+    const room = get('SELECT password FROM rooms WHERE id = ?', [roomId]);
+    if (!room || !room.password) return false;
+    return bcrypt.compareSync(password, room.password);
+  },
+
   getRoomsByUserId: (userId) => {
-    return all(`
+    const rooms = all(`
       SELECT r.*, 
              (SELECT COUNT(*) FROM messages m WHERE m.room_id = r.id AND m.id > rm.last_read_message_id AND m.user_id != ?) as unread_count
       FROM rooms r
@@ -184,6 +210,7 @@ const dbOperations = {
       WHERE rm.user_id = ?
       ORDER BY (SELECT MAX(created_at) FROM messages m WHERE m.room_id = r.id) DESC, r.created_at DESC
     `, [userId, userId]);
+    return sanitizeRooms(rooms);
   },
 
   getPublicRooms: (currentUserId = null) => {
@@ -213,7 +240,7 @@ const dbOperations = {
   },
 
   getPrivateRoom: (user1Id, user2Id) => {
-    return get(`
+    const room = get(`
       SELECT r.*
       FROM rooms r
       INNER JOIN room_members rm1 ON r.id = rm1.room_id
@@ -223,6 +250,7 @@ const dbOperations = {
         AND rm2.user_id = ?
       LIMIT 1
     `, [user1Id, user2Id]);
+    return sanitizeRoom(room);
   },
 
   addRoomMember: (roomId, userId) => {

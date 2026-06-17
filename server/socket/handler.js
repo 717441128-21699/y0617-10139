@@ -49,9 +49,10 @@ function setupSocket(io) {
 
         const lastReadId = db.getLastReadMessageId(roomId, user.id);
         const unreadCount = await getUnreadCount(roomId, user.id);
+        const safeRoom = db.getRoomByIdSafe(roomId);
 
         socket.emit('room_joined', {
-          room,
+          room: safeRoom,
           members: onlineMembers,
           lastReadId,
           unreadCount
@@ -176,9 +177,11 @@ function setupSocket(io) {
     });
 
     socket.on('mark_read', ({ roomId, messageId }) => {
-      if (db.isRoomMember(roomId, user.id)) {
-        db.updateLastReadMessage(roomId, user.id, messageId);
+      if (!db.isRoomMember(roomId, user.id)) {
+        socket.emit('error', { message: '无权操作该房间' });
+        return;
       }
+      db.updateLastReadMessage(roomId, user.id, messageId);
     });
 
     socket.on('sync_offline_messages', ({ lastSyncTime }) => {
@@ -199,9 +202,11 @@ function setupSocket(io) {
     });
 
     socket.on('get_online_users', ({ roomId }) => {
-      if (db.isRoomMember(roomId, user.id)) {
-        broadcastOnlineUsers(io, roomId);
+      if (!db.isRoomMember(roomId, user.id)) {
+        socket.emit('error', { message: '无权查看该房间的在线用户' });
+        return;
       }
+      broadcastOnlineUsers(io, roomId);
     });
 
     socket.on('typing', ({ roomId, isTyping }) => {
